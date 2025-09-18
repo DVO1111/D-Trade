@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wallet Connect Demo — Live Prices & Demo Trading</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+  <!-- Chart.js for live price chart -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="app">
+    <h1>Wallet Connect Demo — Choose Wallet & Live Balances</h1>
+    <div id="banner" class="banner">LIVE MODE — balances via Helius RPC</div>
+
+    <div id="controls">
+      <button id="connectBtn">Connect Wallet</button>
+      <button id="disconnectBtn" style="display:none">Disconnect</button>
+    </div>
+
+    <div id="status"></div>
+
+    <div id="wallet" class="card" style="display:none">
+      <h3>Wallet</h3>
+      <p><strong>Public Key:</strong> <span id="pubkey" class="mono"></span></p>
+      <p><strong>Available SOL:</strong> <span id="solBalance">—</span></p>
+      <p><span class="badge">mainnet</span></p>
+    </div>
+
+    <div id="prices" class="card" style="display:none">
+      <h3>Live Token Prices</h3>
+      <p><strong>SOL:</strong> <span id="solPrice"></span></p>
+      <p><strong>USDC:</strong> <span id="usdcPrice"></span></p>
+    </div>
+
+    <div id="chartCard" class="card" style="display:none">
+      <h3>Live SOL Price (USD)</h3>
+      <canvas id="priceChart" height="160"></canvas>
+      <small id="chartHint" style="color:#94a3b8;">Updates every ~10 seconds</small>
+    </div>
+
+    <div id="balances" class="card" style="display:none">
+      <h3>Token Balances</h3>
+      <ul id="balanceList"></ul>
+    </div>
+
+    <div id="demoTrading" class="card">
+      <h3>Demo Trading (paper mode)</h3>
+      <div id="portfolio">
+        <p><strong>Demo Cash (USD):</strong> <span id="demoUsd">—</span></p>
+        <p><strong>Holdings:</strong> <span id="demoHoldings">—</span></p>
+        <p><strong>Est. Portfolio Value:</strong> <span id="demoValue">—</span></p>
+      </div>
+      <form id="tradeForm">
+        <label>Side:</label><br/>
+        <label><input type="radio" name="side" value="buy" checked> Buy</label>
+        <label><input type="radio" name="side" value="sell"> Sell</label>
+        <br/><br/>
+        <label>Token:</label><br/>
+        <select id="tradeToken">
+          <option value="SOL">SOL</option>
+          <option value="USDC">USDC</option>
+        </select>
+        <br/><br/>
+        <label>Amount (USD):</label><br/>
+        <input type="number" id="tradeUsd" min="0" step="0.01" placeholder="100" />
+        <br/><br/>
+        <button type="submit">Execute Demo Trade</button>
+      </form>
+      <div id="tradeMsg" style="margin-top:8px;"></div>
+      <div id="history" style="margin-top:12px;">
+        <h4>Trade History</h4>
+        <ul id="tradeHistory"></ul>
+      </div>
+    </div>
+
+    <div id="help" class="card">
+      <h4>Notes</h4>
+      <ul>
+        <li>Choose your wallet when you click “Connect Wallet.” Auto-connect is disabled.</li>
+        <li>Balances come from your backend via Helius RPC.</li>
+        <li>Live prices use Jupiter with DexScreener fallback.</li>
+        <li>Demo trading is paper-only (no blockchain transactions).</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Wallet Select Modal -->
+  <div id="walletModal" class="modal">
+    <div class="modal-content">
+      <h3>Select a wallet</h3>
+      <div id="walletOptions"></div>
+      <p id="noWalletsMsg" style="display:none; color:#fca5a5; font-size:0.9em;">
+        No wallets detected. Please install Phantom or Solflare and reload this page.
+      </p>
+      <div class="modal-actions" style="text-align:right; margin-top:10px;">
+        <button id="closeModal">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
