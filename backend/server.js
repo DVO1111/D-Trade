@@ -1,16 +1,20 @@
 /**
  * backend/server.js
- * Express server that serves static frontend and wallet API:
- * - /api/ping
- * - /api/balances/:pubkey
- * - /api/prices  (Jupiter price API with DexScreener fallback)
- * - /api/quote
- * - /api/swap
+ * Express server serving static frontend and wallet/demo trading API:
+ * - GET  /api/ping
+ * - GET  /api/balances/:pubkey
+ * - GET  /api/prices            (supports ?ids=comma,separated,mints & ?source=dex|jup, default dex)
+ * - GET  /api/token-meta?mint=...
+ * - GET  /assets/pnl            (serves provided PnL image)
+ * - GET  /assets/trade-history-ref (serves provided trade history reference image)
+ * - GET  /api/quote
+ * - POST /api/swap
  */
 require('dotenv').config({ path: '../.env' });
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fetch = global.fetch || ((...args) => import('node-fetch').then(({default: f}) => f(...args)));
 
 const app = express();
 app.use(cors());
@@ -23,20 +27,21 @@ app.use(express.static(path.join(__dirname, '../frontend')));
 const HELIUS_KEY = process.env.HELIUS_API_KEY || '';
 const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}`;
 
-// TOKEN MAP: well-known mints
+// Known token mints
+const MINT_SOL = 'So11111111111111111111111111111111111111112';
+const MINT_USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
 const TOKEN_MAP = {
-  'So11111111111111111111111111111111111111112': {
+  [MINT_SOL]: {
     symbol: 'SOL',
     name: 'Solana',
-    // SOL/USDC on Orca (DexScreener pair address, chain is solana)
-    pairAddress: 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE'
+    pairAddress: 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE' // Orca SOL/USDC (fallback by pair)
   },
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': {
+  [MINT_USDC]: {
     symbol: 'USDC',
     name: 'USD Coin',
     pairAddress: 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE'
   },
-  // Additional common tokens (pairAddress used for fallback only; may not always resolve)
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': {
     symbol: 'USDT',
     name: 'Tether USD',
@@ -54,8 +59,12 @@ function safeNumber(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
-function tokenInfoForMint(mint) {
-  return TOKEN_MAP[mint] || { symbol: mint, name: mint, pairAddress: null };
+function uniq(arr) {
+  return [...new Set((arr || []).filter(Boolean))];
+}
+function parseIdsParam(val) {
+  if (!val || typeof val !== 'string') return [];
+  return uniq(val.split(',').map(s => s.trim()).filter(Boolean));
 }
 
 // ---------------------- API Endpoints ----------------------
@@ -96,9 +105,10 @@ app.get('/api/balances/:pubkey', async (req, res) => {
           const info = acc.account.data.parsed.info;
           const mint = info.mint;
           const uiAmount = info.tokenAmount?.uiAmount ?? 0;
-          const tinfo = tokenInfoForMint(mint);
-          balances[tinfo.symbol] = { balance: uiAmount, display: tinfo.name };
-        } catch (e) {}
+          const sym = TOKEN_MAP[mint]?.symbol || mint;
+          const name = TOKEN_MAP[mint]?.name || mint;
+          balances[sym] = { balance: uiAmount, display: name, mint };
+        } catch {}
       });
     }
 
@@ -116,8 +126,7 @@ app.get('/api/balances/:pubkey', async (req, res) => {
     const solJson = await solResp.json();
     const lamports = solJson.result?.value ?? 0;
     const solAmount = lamports / 1e9;
-    const solInfo = tokenInfoForMint('So11111111111111111111111111111111111111112');
-    balances[solInfo.symbol] = { balance: solAmount, display: solInfo.name };
+    balances.SOL = { balance: solAmount, display: 'Solana', mint: MINT_SOL };
 
     return res.json(balances);
   } catch (err) {
@@ -126,8 +135,8 @@ app.get('/api/balances/:pubkey', async (req, res) => {
   }
 });
 
-// Helper: DexScreener price fetch (solana chain)
-async function getDexPriceUSD(pairAddress) {
+// DexScreener helpers
+async function getDexPriceByPairUSD(pairAddress) {
   if (!pairAddress) return null;
   try {
     const r = await fetch(`https://api.dexscreener.com/latest/dex/pairs/solana/${pairAddress}`);
@@ -138,40 +147,112 @@ async function getDexPriceUSD(pairAddress) {
     return null;
   }
 }
+async function getDexPriceByTokenUSD(tokenMint) {
+  if (!tokenMint) return null;
+  try {
+    const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint}`);
+    const j = await r.json();
+    const pairs = Array.isArray(j?.pairs) ? j.pairs : [];
+    if (!pairs.length) return null;
+    // pick the pair with the highest liquidity usd if available
+    let best = pairs[0];
+    let bestLiq = Number(best?.liquidity?.usd || 0);
+    for (const p of pairs) {
+      const liq = Number(p?.liquidity?.usd || 0);
+      if (liq > bestLiq) { best = p; bestLiq = liq; }
+    }
+    const priceStr = best?.priceUsd ?? null;
+    return safeNumber(priceStr);
+  } catch {
+    return null;
+  }
+}
 
-// Prices (Jupiter first, DexScreener fallback)
+// Token meta via DexScreener best pair
+async function getTokenMetaFromDex(mint) {
+  try {
+    const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+    const j = await r.json();
+    const pairs = Array.isArray(j?.pairs) ? j.pairs : [];
+    if (!pairs.length) return { mint, symbol: null, name: null };
+    let best = pairs[0];
+    let bestLiq = Number(best?.liquidity?.usd || 0);
+    for (const p of pairs) {
+      const liq = Number(p?.liquidity?.usd || 0);
+      if (liq > bestLiq) { best = p; bestLiq = liq; }
+    }
+    const base = best?.baseToken || {};
+    return { mint, symbol: base.symbol || null, name: base.name || null };
+  } catch {
+    return { mint, symbol: null, name: null };
+  }
+}
+
+// Prices (supports source selection). Default source: DexScreener to align with Dexscreener UI.
+// Stronger fallbacks for SOL/USDC to avoid "Error" on frontend.
 app.get('/api/prices', async (req, res) => {
   try {
-    const mints = Object.keys(TOKEN_MAP);
+    const idsFromQuery = parseIdsParam(req.query.ids);
+    const source = (req.query.source || 'dex').toLowerCase();
+    const defaultMints = [MINT_SOL, MINT_USDC];
+    const allMints = uniq([...idsFromQuery, ...defaultMints]);
+
     const prices = {};
 
-    // Try Jupiter price API v6
-    try {
-      const jupUrl = `https://price.jup.ag/v6/price?ids=${encodeURIComponent(mints.join(','))}`;
-      const jr = await fetch(jupUrl);
-      const jj = await jr.json();
-      for (const mint of mints) {
-        const p = jj?.data?.[mint]?.price;
-        if (typeof p === 'number') {
-          const sym = TOKEN_MAP[mint].symbol;
-          prices[sym] = p;
+    if (source === 'jup') {
+      // Jupiter price API v6 first
+      try {
+        const jupUrl = `https://price.jup.ag/v6/price?ids=${encodeURIComponent(allMints.join(','))}`;
+        const jr = await fetch(jupUrl);
+        const jj = await jr.json();
+        for (const id of allMints) {
+          const p = jj?.data?.[id]?.price;
+          if (typeof p === 'number') {
+            if (id === MINT_SOL) prices['SOL'] = p;
+            else if (id === MINT_USDC) prices['USDC'] = p;
+            else prices[id] = p;
+          }
         }
+      } catch {}
+      // Fallback to Dex by token for any missing
+      await Promise.all(allMints.map(async id => {
+        const has = (id === MINT_SOL && typeof prices.SOL === 'number') ||
+                    (id === MINT_USDC && typeof prices.USDC === 'number') ||
+                    (id !== MINT_SOL && id !== MINT_USDC && typeof prices[id] === 'number');
+        if (has) return;
+        const p2 = await getDexPriceByTokenUSD(id);
+        if (typeof p2 === 'number') {
+          if (id === MINT_SOL) prices.SOL = p2;
+          else if (id === MINT_USDC) prices.USDC = p2;
+          else prices[id] = p2;
+        } else {
+          if (id === MINT_SOL && typeof prices.SOL !== 'number') prices.SOL = null;
+          else if (id === MINT_USDC && typeof prices.USDC !== 'number') prices.USDC = 1.0;
+          else if (typeof prices[id] !== 'number') prices[id] = null;
+        }
+      }));
+    } else {
+      // DexScreener authoritative path to align with what you see on Dexscreener
+      await Promise.all(allMints.map(async id => {
+        let p = await getDexPriceByTokenUSD(id);
+        if (typeof p !== 'number' && TOKEN_MAP[id]?.pairAddress) {
+          p = await getDexPriceByPairUSD(TOKEN_MAP[id].pairAddress);
+        }
+        if (id === MINT_SOL) prices.SOL = (typeof p === 'number') ? p : null;
+        else if (id === MINT_USDC) prices.USDC = (typeof p === 'number') ? p : 1.0;
+        else prices[id] = (typeof p === 'number') ? p : null;
+      }));
+      // Extra safety: if SOL missing, try Jupiter as last resort
+      if (typeof prices.SOL !== 'number') {
+        try {
+          const jr = await fetch(`https://price.jup.ag/v6/price?ids=${MINT_SOL}`);
+          const jj = await jr.json();
+          const p = jj?.data?.[MINT_SOL]?.price;
+          prices.SOL = (typeof p === 'number') ? p : prices.SOL ?? null;
+        } catch {}
       }
-    } catch (e) {
-      // Ignore, fallback below
     }
 
-    // Fallback to DexScreener for missing symbols
-    await Promise.all(
-      Object.entries(TOKEN_MAP).map(async ([mint, info]) => {
-        const sym = info.symbol;
-        if (typeof prices[sym] === 'number') return;
-        const pDex = await getDexPriceUSD(info.pairAddress);
-        prices[sym] = typeof pDex === 'number' ? pDex : null;
-      })
-    );
-
-    // USDC default to 1.0 if missing
     if (typeof prices.USDC !== 'number') prices.USDC = 1.0;
 
     return res.json(prices);
@@ -179,6 +260,30 @@ app.get('/api/prices', async (req, res) => {
     console.error('Price fetch error:', err);
     return res.status(500).json({ error: err.message || String(err) });
   }
+});
+
+// Token metadata endpoint
+app.get('/api/token-meta', async (req, res) => {
+  const mint = (req.query.mint || '').trim();
+  if (!mint) return res.status(400).json({ error: 'mint required' });
+  try {
+    const meta = await getTokenMetaFromDex(mint);
+    return res.json(meta);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || String(err) });
+  }
+});
+
+// Serve provided images safely via explicit routes (no broad static exposure)
+app.get('/assets/pnl', (req, res) => {
+  // /workspace/uploads/WhatsApp Image 2025-09-19 at 10.44.01_7bb920df.jpg
+  const p = path.join(__dirname, '..', 'WhatsApp Image 2025-09-19 at 10.44.01_7bb920df.jpg');
+  res.sendFile(p);
+});
+app.get('/assets/trade-history-ref', (req, res) => {
+  // /workspace/uploads/image.png
+  const p = path.join(__dirname, '..', 'image.png');
+  res.sendFile(p);
 });
 
 // Quote
@@ -213,7 +318,8 @@ app.post('/api/swap', async (req, res) => {
         quoteResponse: qJson,
         userPublicKey: userPubkey,
         wrapUnwrapSOL: true,
-        wrapAndUnwrapSol: true
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true
       })
     });
     const swapJson = await swapRes.json();
