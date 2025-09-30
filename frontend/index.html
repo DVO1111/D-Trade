@@ -1,104 +1,271 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Wallet Connect Demo — Live Prices & Demo Trading</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="style.css" />
-  <!-- Chart.js for live price chart -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D-Trade - Professional Trading Interface</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
-  <div class="app">
-    <h1>Wallet Connect Demo — Choose Wallet & Live Balances</h1>
-    <div id="banner" class="banner">LIVE MODE — balances via Helius RPC</div>
+    <!-- Top Navigation -->
+    <nav class="top-nav">
+        <div class="nav-left">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">D-TRADE</span>
+            </div>
+            <div class="token-info">
+                <span class="token-name">SOL/USDT</span>
+                <span class="token-price" id="currentPrice">$142.50</span>
+                <span class="price-change positive" id="priceChange">+2.34%</span>
+            </div>
+        </div>
+        
+        <div class="nav-right">
+            <button id="connectWallet" class="connect-btn">Connect Wallet</button>
+        </div>
+    </nav>
 
-    <div id="controls">
-      <button id="connectBtn">Connect Wallet</button>
-      <button id="disconnectBtn" style="display:none">Disconnect</button>
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Left Side - Chart & Trading -->
+        <div class="left-panel">
+            <!-- Chart Section -->
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="chart-controls">
+                        <div class="timeframe-buttons">
+                            <button class="tf-btn" data-tf="1m">1m</button>
+                            <button class="tf-btn" data-tf="5m">5m</button>
+                            <button class="tf-btn active" data-tf="15m">15m</button>
+                            <button class="tf-btn" data-tf="1h">1h</button>
+                            <button class="tf-btn" data-tf="4h">4h</button>
+                            <button class="tf-btn" data-tf="1d">1D</button>
+                        </div>
+                        <div class="chart-tools">
+                            <button class="tool-btn" title="Drawing Tools">📏</button>
+                            <button class="tool-btn" title="Indicators">📊</button>
+                            <button class="tool-btn" title="Settings">⚙️</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <div id="tradingChart" class="trading-chart"></div>
+                </div>
+            </div>
+
+            <!-- Quick Trading Section -->
+            <div class="quick-trade-section">
+                <div class="trade-header">
+                    <h3>Quick Trade</h3>
+                    <div class="wallet-status">
+                        <span class="status-indicator" id="walletIndicator">🔴</span>
+                        <span id="walletStatusText">Not Connected</span>
+                    </div>
+                </div>
+                
+                <div class="trade-form">
+                    <div class="trade-input-group">
+                        <label>Amount (USDT)</label>
+                        <input type="number" id="tradeAmount" placeholder="0.00" min="0" step="0.01">
+                        <div class="balance">Balance: <span id="usdtBalance">0</span> USDT</div>
+                    </div>
+                    
+                    <div class="trade-buttons">
+                        <button class="trade-btn buy-btn" id="buyBtn">
+                            <span>Buy SOL</span>
+                            <small id="buyEstimate">≈ 0 SOL</small>
+                        </button>
+                        <button class="trade-btn sell-btn" id="sellBtn">
+                            <span>Sell SOL</span>
+                            <small id="sellEstimate">≈ 0 USDT</small>
+                        </button>
+                    </div>
+                    
+                    <div class="trade-message" id="tradeMessage"></div>
+                </div>
+            </div>
+
+            <!-- Recent Trades -->
+            <div class="trades-section">
+                <div class="trades-header">
+                    <h3>Recent Trades</h3>
+                    <div class="trades-controls">
+                        <button class="trades-filter active" data-filter="all">All</button>
+                        <button class="trades-filter" data-filter="buy">Buys</button>
+                        <button class="trades-filter" data-filter="sell">Sells</button>
+                    </div>
+                </div>
+                <div class="trades-list" id="tradesList">
+                    <!-- Trades will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Side - Swap Interface -->
+        <div class="right-panel">
+            <div class="swap-widget">
+                <div class="swap-header">
+                    <h2>Swap</h2>
+                    <button class="settings-btn" id="swapSettings">⚙️</button>
+                </div>
+
+                <!-- You Pay Section -->
+                <div class="swap-section">
+                    <div class="section-header">
+                        <span>You Pay</span>
+                        <span class="balance">Balance: <span id="payTokenBalance">0</span></span>
+                    </div>
+                    <div class="swap-input">
+                        <input type="number" id="payAmount" placeholder="0.00" min="0" step="0.01">
+                        <div class="token-select" id="payTokenSelect">
+                            <div class="token-info">
+                                <div class="token-icon usdt-icon"></div>
+                                <span class="token-symbol">USDT</span>
+                            </div>
+                            <span class="dropdown-arrow">▼</span>
+                        </div>
+                    </div>
+                    <div class="quick-amounts">
+                        <button class="quick-btn" data-pct="25">25%</button>
+                        <button class="quick-btn" data-pct="50">50%</button>
+                        <button class="quick-btn" data-pct="75">75%</button>
+                        <button class="quick-btn" data-pct="100">MAX</button>
+                    </div>
+                </div>
+
+                <!-- Swap Arrow -->
+                <div class="swap-arrow">
+                    <button class="flip-btn" id="flipTokens">⇅</button>
+                </div>
+
+                <!-- You Get Section -->
+                <div class="swap-section">
+                    <div class="section-header">
+                        <span>You Get</span>
+                        <span class="balance">Balance: <span id="getTokenBalance">0</span></span>
+                    </div>
+                    <div class="swap-input">
+                        <input type="number" id="getAmount" placeholder="0.00" readonly>
+                        <div class="token-select" id="getTokenSelect">
+                            <div class="token-info">
+                                <div class="token-icon sol-icon"></div>
+                                <span class="token-symbol">SOL</span>
+                            </div>
+                            <span class="dropdown-arrow">▼</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Swap Details -->
+                <div class="swap-details" id="swapDetails" style="display: none;">
+                    <div class="detail-row">
+                        <span>Rate</span>
+                        <span id="swapRate">1 USDT = 0.007 SOL</span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Slippage</span>
+                        <span id="slippageValue">0.5%</span>
+                    </div>
+                </div>
+
+                <!-- Swap Button -->
+                <button class="swap-btn" id="swapBtn" disabled>
+                    <span id="swapBtnText">Enter Amount</span>
+                </button>
+
+                <!-- Slippage Settings -->
+                <div class="slippage-settings" id="slippageSettings" style="display: none;">
+                    <div class="slippage-header">
+                        <span>Slippage Tolerance</span>
+                    </div>
+                    <div class="slippage-options">
+                        <button class="slippage-btn active" data-slippage="0.5">0.5%</button>
+                        <button class="slippage-btn" data-slippage="1">1%</button>
+                        <button class="slippage-btn" data-slippage="3">3%</button>
+                        <input type="number" class="slippage-custom" placeholder="Custom" min="0" max="50" step="0.1">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Portfolio Overview -->
+            <div class="portfolio-widget">
+                <div class="portfolio-header">
+                    <h3>Portfolio</h3>
+                    <div class="portfolio-value">
+                        <span class="total-value" id="totalValue">$100,000.00</span>
+                        <span class="pnl" id="totalPnL">$0.00 (0%)</span>
+                    </div>
+                </div>
+                <div class="portfolio-assets">
+                    <div class="asset-item">
+                        <div class="asset-info">
+                            <div class="token-icon usdt-icon"></div>
+                            <span class="asset-symbol">USDT</span>
+                        </div>
+                        <div class="asset-balance">
+                            <span id="portfolioUSDT">100,000</span>
+                            <small>$100,000</small>
+                        </div>
+                    </div>
+                    <div class="asset-item">
+                        <div class="asset-info">
+                            <div class="token-icon sol-icon"></div>
+                            <span class="asset-symbol">SOL</span>
+                        </div>
+                        <div class="asset-balance">
+                            <span id="portfolioSOL">0</span>
+                            <small>$0</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div id="status"></div>
-
-    <div id="wallet" class="card" style="display:none">
-      <h3>Wallet</h3>
-      <p><strong>Public Key:</strong> <span id="pubkey" class="mono"></span></p>
-      <p><strong>Available SOL:</strong> <span id="solBalance">—</span></p>
-      <p><span class="badge">mainnet</span></p>
+    <!-- Wallet Modal -->
+    <div id="walletModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Connect Wallet</h3>
+                <button class="modal-close" id="closeModal">×</button>
+            </div>
+            <div class="wallet-options" id="walletOptions">
+                <!-- Wallet options will be populated by JavaScript -->
+            </div>
+        </div>
     </div>
 
-    <div id="prices" class="card" style="display:none">
-      <h3>Live Token Prices</h3>
-      <p><strong>SOL:</strong> <span id="solPrice"></span></p>
-      <p><strong>USDC:</strong> <span id="usdcPrice"></span></p>
+    <!-- Token Select Modal -->
+    <div id="tokenModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Select Token</h3>
+                <button class="modal-close" id="closeTokenModal">×</button>
+            </div>
+            <div class="token-list">
+                <div class="token-option" data-token="USDT">
+                    <div class="token-icon usdt-icon"></div>
+                    <div class="token-details">
+                        <span class="token-symbol">USDT</span>
+                        <span class="token-name">Tether USD</span>
+                    </div>
+                    <span class="token-balance">0</span>
+                </div>
+                <div class="token-option" data-token="SOL">
+                    <div class="token-icon sol-icon"></div>
+                    <div class="token-details">
+                        <span class="token-symbol">SOL</span>
+                        <span class="token-name">Solana</span>
+                    </div>
+                    <span class="token-balance">0</span>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div id="chartCard" class="card" style="display:none">
-      <h3>Live SOL Price (USD)</h3>
-      <canvas id="priceChart" height="160"></canvas>
-      <small id="chartHint" style="color:#94a3b8;">Updates every ~10 seconds</small>
-    </div>
-
-    <div id="balances" class="card" style="display:none">
-      <h3>Token Balances</h3>
-      <ul id="balanceList"></ul>
-    </div>
-
-    <div id="demoTrading" class="card">
-      <h3>Demo Trading (paper mode)</h3>
-      <div id="portfolio">
-        <p><strong>Demo Cash (USD):</strong> <span id="demoUsd">—</span></p>
-        <p><strong>Holdings:</strong> <span id="demoHoldings">—</span></p>
-        <p><strong>Est. Portfolio Value:</strong> <span id="demoValue">—</span></p>
-      </div>
-      <form id="tradeForm">
-        <label>Side:</label><br/>
-        <label><input type="radio" name="side" value="buy" checked> Buy</label>
-        <label><input type="radio" name="side" value="sell"> Sell</label>
-        <br/><br/>
-        <label>Token:</label><br/>
-        <select id="tradeToken">
-          <option value="SOL">SOL</option>
-          <option value="USDC">USDC</option>
-        </select>
-        <br/><br/>
-        <label>Amount (USD):</label><br/>
-        <input type="number" id="tradeUsd" min="0" step="0.01" placeholder="100" />
-        <br/><br/>
-        <button type="submit">Execute Demo Trade</button>
-      </form>
-      <div id="tradeMsg" style="margin-top:8px;"></div>
-      <div id="history" style="margin-top:12px;">
-        <h4>Trade History</h4>
-        <ul id="tradeHistory"></ul>
-      </div>
-    </div>
-
-    <div id="help" class="card">
-      <h4>Notes</h4>
-      <ul>
-        <li>Choose your wallet when you click “Connect Wallet.” Auto-connect is disabled.</li>
-        <li>Balances come from your backend via Helius RPC.</li>
-        <li>Live prices use Jupiter with DexScreener fallback.</li>
-        <li>Demo trading is paper-only (no blockchain transactions).</li>
-      </ul>
-    </div>
-  </div>
-
-  <!-- Wallet Select Modal -->
-  <div id="walletModal" class="modal">
-    <div class="modal-content">
-      <h3>Select a wallet</h3>
-      <div id="walletOptions"></div>
-      <p id="noWalletsMsg" style="display:none; color:#fca5a5; font-size:0.9em;">
-        No wallets detected. Please install Phantom or Solflare and reload this page.
-      </p>
-      <div class="modal-actions" style="text-align:right; margin-top:10px;">
-        <button id="closeModal">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
